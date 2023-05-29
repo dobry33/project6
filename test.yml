@@ -1,0 +1,126 @@
+---
+  - hosts: app
+    gather_facts: true
+    
+    vars:
+      ubuntu: 
+        - Ubuntu
+      centos:
+        - CentOS
+    
+    tasks:
+    - name: install docker requirements on ubuntu
+      become: yes
+      apt:
+        name:
+        - ca-certificates
+        - curl
+        - gnupg
+        update_cache: yes
+      when: ansible_facts['distribution'] in ubuntu 
+
+
+    - name: install docker requirements on centos
+      become: yes
+      yum:
+        name:
+        - yum-utils
+      when: ansible_facts['distribution'] in centos
+
+    - name: add centos repo  
+      become: yes  
+      yum_repository:
+        name: docker
+        description: centos repo
+        baseurl: https://download.docker.com/linux/centos/docker-ce.repo
+        #baseurl: https://download.docker.com/linux/centos/7/$basearch/stable
+      when: ansible_facts['distribution'] in centos   
+
+
+    - name: add docker gpg key
+      become: yes
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        keyring: /etc/apt/keyrings/docker.gpg
+        state: present
+      when: ansible_facts['distribution'] in ubuntu
+
+    - name: add repo
+      become: yes
+      ansible.builtin.apt_repository:
+        repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu  {{ ansible_distribution_release }} stable"
+        state: present
+      when: ansible_facts['distribution'] in ubuntu
+
+
+      
+
+    - name: update cache
+      become: yes
+      apt:
+        update_cache: yes
+      when: ansible_facts['distribution'] in ubuntu
+
+    - name: install docker on ubuntu
+      become: yes
+      apt:
+        name:
+        - docker-ce 
+        - docker-ce-cli 
+        - containerd.io 
+        - docker-buildx-plugin 
+        - docker-compose-plugin
+      when: ansible_facts['distribution'] in ubuntu 
+
+    - name: install docker on centos
+      become: yes
+      yum:
+        name:
+        - docker-ce 
+        - docker-ce-cli 
+        - containerd.io 
+        - docker-buildx-plugin 
+        - docker-compose-plugin
+      when: ansible_facts['distribution'] in centos 
+
+
+  - name: postgresql demo
+    hosts: database
+    become: true
+    vars:
+      postgresql_version: "14"
+      postgresql_bin_path: "/usr/lib/postgresql/{{ postgresql_version }}/bin"
+      postgresql_data_dir: "/var/lib/postgresql/{{ postgresql_version }}/main"
+      ansible_ssh_pipelining: true
+    tasks:
+      - name: Install packages
+        ansible.builtin.apt:
+          name:
+            - postgresql
+            - postgresql-contrib
+            - libpq-dev
+            - python3-psycopg2
+          state: present
+  
+      - name: Check if PostgreSQL is initialized
+        ansible.builtin.stat:
+          path: "{{ postgresql_data_dir }}/pg_hba.conf"
+        register: postgres_data
+  
+      - name: Empty data dir
+        ansible.builtin.file:
+          path: "{{ postgresql_data_dir }}"
+          state: absent
+        when: not postgres_data.stat.exists
+  
+      - name: Initialize PostgreSQL
+        ansible.builtin.shell: "{{ postgresql_bin_path }}/initdb -D {{ postgresql_data_dir }}"
+        become: true
+        become_user: postgres
+        when: not postgres_data.stat.exists
+  
+      - name: Start and enable service
+        ansible.builtin.service:
+          name: postgresql
+          state: started
+          enabled: true  
